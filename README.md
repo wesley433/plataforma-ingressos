@@ -11,7 +11,7 @@ Taxa da plataforma: **5% sobre o preço de face** de ingressos pagos, repassada 
 | --- | --- | --- |
 | 0 | Base do projeto, schema do banco, cálculo de taxas, QR assinado, CI | ✅ |
 | 1 | Autenticação, perfis, onboarding do organizador (subconta Asaas) | ✅ |
-| 2 | Eventos e lotes | — |
+| 2 | Eventos e lotes | ✅ |
 | 3 | Checkout gratuito e pipeline de ingresso (QR, PDF, e-mail) | — |
 | 4 | Checkout pago, split e webhooks | — |
 | 5 | Check-in mobile e painel do organizador | — |
