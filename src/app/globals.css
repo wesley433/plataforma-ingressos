@@ -16,3 +16,36 @@
 body {
   @apply bg-white text-zinc-900 antialiased;
 }
+
+/* Texto rico da descrição do evento (editor e página pública) */
+.rich-text {
+  @apply leading-relaxed text-zinc-800;
+}
+.rich-text > * + * {
+  @apply mt-3;
+}
+.rich-text h2 {
+  @apply mt-6 text-xl font-semibold text-zinc-900;
+}
+.rich-text h3 {
+  @apply mt-4 text-lg font-semibold text-zinc-900;
+}
+.rich-text ul {
+  @apply list-disc pl-6;
+}
+.rich-text ol {
+  @apply list-decimal pl-6;
+}
+.rich-text blockquote {
+  @apply border-l-4 border-zinc-300 pl-4 text-zinc-600 italic;
+}
+.rich-text a {
+  @apply text-brand-700 underline;
+}
+.rich-text hr {
+  @apply my-6 border-zinc-200;
+}
+.rich-text p:empty::before,
+.tiptap p.is-editor-empty:first-child::before {
+  content: '';
+}
