@@ -4,8 +4,12 @@ on:
   push:
     branches: [tools/prisma-sql]
 
+permissions:
+  contents: write
+
 jobs:
   sql:
+    if: "!contains(github.event.head_commit.message, '[gerado]')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,5 +17,12 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts
-      - run: npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > init.sql
-      - run: cat init.sql
+      - run: mkdir -p out && npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > out/init.sql
+      - run: npm ls --depth=0 > out/versions.txt || true
+      - run: cp package-lock.json out/package-lock.json
+      - run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add out
+          git commit -m "SQL gerado [gerado]"
+          git push
