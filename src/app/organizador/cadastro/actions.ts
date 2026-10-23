@@ -143,7 +143,7 @@ async function activatePayments(userId: string): Promise<void> {
       data: {
         gatewayAccountId: sub.id,
         gatewayWalletId: sub.walletId,
-        gatewayApiKeyEnc: encryptSecret(sub.apiKey),
+        gatewayApiKeyEnc: new Uint8Array(encryptSecret(sub.apiKey)),
         gatewayLastError: null,
       },
     });
