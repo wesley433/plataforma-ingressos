@@ -1,0 +1,17 @@
+name: Prisma SQL (gerar)
+
+on:
+  push:
+    branches: [tools/prisma-sql]
+
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - run: npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > init.sql
+      - run: cat init.sql
