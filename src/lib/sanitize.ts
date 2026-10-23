@@ -17,6 +17,8 @@ export function sanitizeDescription(html: string): string {
 
 /** Texto puro (para metadescrição e cards). */
 export function plainText(html: string, maxLength = 160): string {
-  const text = sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).replace(/\s+/g, ' ').trim();
+  // fim de bloco vira espaço, senão "<p>show</p><p>incrível</p>" viraria "showincrível"
+  const spaced = html.replace(/<\/(p|h2|h3|li|blockquote)>|<br\s*\/?>/gi, ' ');
+  const text = sanitizeHtml(spaced, { allowedTags: [], allowedAttributes: {} }).replace(/\s+/g, ' ').trim();
   return text.length > maxLength ? `${text.slice(0, maxLength - 1).trimEnd()}…` : text;
 }

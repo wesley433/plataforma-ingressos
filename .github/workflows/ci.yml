@@ -38,7 +38,14 @@ jobs:
           npx prisma migrate deploy
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "insert into auth.users values (gen_random_uuid(), 'teste@ci.com', '{\"name\":\"Teste CI\"}');"
           test "$(psql "$DATABASE_URL" -tAc "select name from users where email='teste@ci.com'")" = "Teste CI"
-      - run: npm test
+      - name: Testes
+        run: |
+          set -o pipefail
+          if ! npm test 2>&1 | tee test.log; then
+            msg=$(grep -E "not ok|expected|actual|Error|^\s+[-+] " test.log | head -80 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            echo "::error title=Testes falharam::$msg"
+            exit 1
+          fi
       - run: npm run lint
       - run: npm run build
       - run: npm run typecheck
