@@ -1,0 +1,380 @@
+// Schema do MVP — espelha o documento de arquitetura.
+// Regras que o Prisma não expressa (CHECKs, índice único parcial, FK para auth.users)
+// estão em prisma/constraints.sql e entram na primeira migration (ver README).
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [citext, pgcrypto]
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  participant
+  organizer
+  admin
+
+  @@map("user_role")
+}
+
+enum EventStatus {
+  draft
+  published
+  cancelled
+  finished
+  blocked
+
+  @@map("event_status")
+}
+
+enum EventFormat {
+  in_person
+  online
+
+  @@map("event_format")
+}
+
+enum FeeMode {
+  pass_to_buyer
+  absorb
+
+  @@map("fee_mode")
+}
+
+enum TicketKind {
+  free
+  paid
+
+  @@map("ticket_kind")
+}
+
+enum OrderStatus {
+  pending
+  awaiting_payment
+  paid
+  expired
+  cancelled
+  refunded
+  chargeback
+
+  @@map("order_status")
+}
+
+enum PaymentMethod {
+  pix
+  credit_card
+
+  @@map("payment_method")
+}
+
+enum PaymentStatus {
+  pending
+  confirmed
+  received
+  overdue
+  refunded
+  chargeback
+  deleted
+
+  @@map("payment_status")
+}
+
+enum TicketStatus {
+  pending
+  valid
+  checked_in
+  cancelled
+
+  @@map("ticket_status")
+}
+
+// ─── Usuários e organizadores ─────────────────────────────────────────────
+
+/// id = auth.users.id do Supabase Auth
+model User {
+  id        String   @id @db.Uuid
+  email     String   @unique @db.Citext
+  name      String
+  cpf       String?  @db.Char(11)
+  phone     String?
+  role      UserRole @default(participant)
+  isBlocked Boolean  @default(false) @map("is_blocked")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organizerAccount  OrganizerAccount?
+  orders            Order[]
+  checkinsOperated  Checkin[]
+  staffOf           EventStaff[]
+  moderationActions ModerationAction[]
+
+  @@map("users")
+}
+
+model OrganizerAccount {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @unique @map("user_id") @db.Uuid
+  legalName         String   @map("legal_name")
+  document          String   @db.VarChar(14) /// CPF ou CNPJ, só dígitos
+  gatewayProvider   String   @default("asaas") @map("gateway_provider")
+  gatewayAccountId  String?  @unique @map("gateway_account_id")
+  gatewayWalletId   String?  @unique @map("gateway_wallet_id")
+  gatewayApiKeyEnc  Bytes?   @map("gateway_api_key_enc") /// chave da subconta, cifrada
+  webhookTokenHash  String?  @map("webhook_token_hash")
+  kycStatus         String   @default("pending") @map("kyc_status")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user        User         @relation(fields: [userId], references: [id])
+  events      Event[]
+  withdrawals Withdrawal[]
+
+  @@map("organizer_accounts")
+}
+
+// ─── Eventos e lotes ──────────────────────────────────────────────────────
+
+model Event {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizerId     String      @map("organizer_id") @db.Uuid
+  slug            String      @unique
+  title           String
+  descriptionHtml String      @map("description_html") /// sanitizado no servidor
+  bannerUrl       String?     @map("banner_url")
+  startsAt        DateTime    @map("starts_at") @db.Timestamptz
+  endsAt          DateTime    @map("ends_at") @db.Timestamptz
+  timezone        String      @default("America/Sao_Paulo")
+  format          EventFormat
+  venueName       String?     @map("venue_name")
+  addressLine     String?     @map("address_line")
+  city            String?
+  state           String?     @db.Char(2)
+  zipCode         String?     @map("zip_code") @db.Char(8)
+  onlineUrl       String?     @map("online_url") /// revelado só a quem tem ingresso válido
+  feeMode         FeeMode     @default(pass_to_buyer) @map("fee_mode")
+  status          EventStatus @default(draft)
+  publishedAt     DateTime?   @map("published_at") @db.Timestamptz
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  organizer   OrganizerAccount @relation(fields: [organizerId], references: [id])
+  ticketTypes TicketType[]
+  orders      Order[]
+  orderItems  OrderItem[]
+  checkins    Checkin[]
+  staff       EventStaff[]
+
+  @@index([status, startsAt], map: "events_public_idx")
+  @@map("events")
+}
+
+model TicketType {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventId          String     @map("event_id") @db.Uuid
+  name             String /// '1º Lote', 'VIP', 'Gratuito'
+  description      String?
+  kind             TicketKind
+  priceCents       Int        @map("price_cents")
+  quantityTotal    Int        @map("quantity_total")
+  quantitySold     Int        @default(0) @map("quantity_sold")
+  quantityReserved Int        @default(0) @map("quantity_reserved")
+  minPerOrder      Int        @default(1) @map("min_per_order") @db.SmallInt
+  maxPerOrder      Int        @default(10) @map("max_per_order") @db.SmallInt
+  salesStartAt     DateTime?  @map("sales_start_at") @db.Timestamptz
+  salesEndAt       DateTime?  @map("sales_end_at") @db.Timestamptz
+  sortOrder        Int        @default(0) @map("sort_order") @db.SmallInt
+  isHidden         Boolean    @default(false) @map("is_hidden")
+
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@index([eventId, sortOrder], map: "ticket_types_event_idx")
+  @@map("ticket_types")
+}
+
+// ─── Pedidos e ingressos ──────────────────────────────────────────────────
+
+/// Snapshot financeiro: buyer_total = organizer_gross + platform_fee (CHECK no banco)
+model Order {
+  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                String      @unique /// ex.: EVT-7K2Q9X
+  eventId             String      @map("event_id") @db.Uuid
+  buyerId             String?     @map("buyer_id") @db.Uuid
+  buyerName           String      @map("buyer_name")
+  buyerEmail          String      @map("buyer_email") @db.Citext
+  buyerCpf            String?     @map("buyer_cpf") @db.Char(11)
+  buyerPhone          String?     @map("buyer_phone")
+  status              OrderStatus @default(pending)
+  feeMode             FeeMode     @map("fee_mode")
+  feeRateBps          Int         @default(500) @map("fee_rate_bps")
+  subtotalCents       Int         @map("subtotal_cents")
+  platformFeeCents    Int         @map("platform_fee_cents")
+  buyerTotalCents     Int         @map("buyer_total_cents")
+  organizerGrossCents Int         @map("organizer_gross_cents")
+  processingFeeCents  Int?        @map("processing_fee_cents")
+  organizerNetCents   Int?        @map("organizer_net_cents")
+  reservedUntil       DateTime?   @map("reserved_until") @db.Timestamptz
+  paidAt              DateTime?   @map("paid_at") @db.Timestamptz
+  idempotencyKey      String?     @unique @map("idempotency_key")
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  event    Event       @relation(fields: [eventId], references: [id])
+  buyer    User?       @relation(fields: [buyerId], references: [id])
+  items    OrderItem[]
+  payments Payment[]
+
+  @@index([eventId, status], map: "orders_event_status_idx")
+  @@map("orders")
+}
+
+/// Uma linha = um ingresso = um participante = um QR Code
+model OrderItem {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId        String       @map("order_id") @db.Uuid
+  ticketTypeId   String       @map("ticket_type_id") @db.Uuid
+  eventId        String       @map("event_id") @db.Uuid
+  unitPriceCents Int          @map("unit_price_cents")
+  unitFeeCents   Int          @map("unit_fee_cents")
+  attendeeName   String       @map("attendee_name")
+  attendeeEmail  String       @map("attendee_email") @db.Citext
+  attendeeCpf    String?      @map("attendee_cpf") @db.Char(11)
+  ticketCode     String       @unique @map("ticket_code")
+  qrNonce        String       @default(dbgenerated("gen_random_uuid()")) @map("qr_nonce") @db.Uuid
+  status         TicketStatus @default(pending)
+  issuedAt       DateTime?    @map("issued_at") @db.Timestamptz
+  pdfPath        String?      @map("pdf_path")
+  emailSentAt    DateTime?    @map("email_sent_at") @db.Timestamptz
+
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id])
+  event      Event      @relation(fields: [eventId], references: [id])
+  checkins   Checkin[]
+
+  @@index([eventId, status], map: "order_items_event_idx")
+  @@index([eventId, attendeeName], map: "order_items_attendee_idx")
+  @@map("order_items")
+}
+
+model Payment {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId           String        @map("order_id") @db.Uuid
+  provider          String        @default("asaas")
+  providerPaymentId String        @unique @map("provider_payment_id")
+  method            PaymentMethod
+  status            PaymentStatus @default(pending)
+  amountCents       Int           @map("amount_cents")
+  netAmountCents    Int?          @map("net_amount_cents")
+  splitPayload      Json          @map("split_payload")
+  pixCopyPaste      String?       @map("pix_copy_paste")
+  pixQrImage        String?       @map("pix_qr_image")
+  pixExpiresAt      DateTime?     @map("pix_expires_at") @db.Timestamptz
+  cardBrand         String?       @map("card_brand")
+  cardLast4         String?       @map("card_last4") @db.Char(4)
+  confirmedAt       DateTime?     @map("confirmed_at") @db.Timestamptz
+  refundedAt        DateTime?     @map("refunded_at") @db.Timestamptz
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId], map: "payments_order_idx")
+  @@map("payments")
+}
+
+// ─── Check-in ─────────────────────────────────────────────────────────────
+
+/// Log de todas as leituras; índice único parcial garante um único 'ok' por ingresso
+model Checkin {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderItemId String?  @map("order_item_id") @db.Uuid
+  eventId     String   @map("event_id") @db.Uuid
+  operatorId  String   @map("operator_id") @db.Uuid
+  method      String /// 'qr' | 'manual'
+  result      String /// 'ok' | 'already_used' | 'invalid' | 'wrong_event' | 'cancelled'
+  deviceInfo  String?  @map("device_info")
+  scannedAt   DateTime @default(now()) @map("scanned_at") @db.Timestamptz
+
+  orderItem OrderItem? @relation(fields: [orderItemId], references: [id])
+  event     Event      @relation(fields: [eventId], references: [id])
+  operator  User       @relation(fields: [operatorId], references: [id])
+
+  @@map("checkins")
+}
+
+// ─── Apoio ────────────────────────────────────────────────────────────────
+
+model WebhookEvent {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider        String
+  providerEventId String    @map("provider_event_id")
+  eventType       String    @map("event_type")
+  payload         Json
+  status          String    @default("received") /// received | processed | ignored | failed
+  attempts        Int       @default(0)
+  lastError       String?   @map("last_error")
+  receivedAt      DateTime  @default(now()) @map("received_at") @db.Timestamptz
+  processedAt     DateTime? @map("processed_at") @db.Timestamptz
+
+  @@unique([provider, providerEventId])
+  @@map("webhook_events")
+}
+
+model JobOutbox {
+  id        BigInt   @id @default(autoincrement())
+  type      String /// 'issue_tickets' | 'send_ticket_email' | 'refund'
+  payload   Json
+  dedupeKey String   @unique @map("dedupe_key") /// ex.: 'issue_tickets:<order_id>'
+  status    String   @default("queued")
+  attempts  Int      @default(0)
+  runAt     DateTime @default(now()) @map("run_at") @db.Timestamptz
+  lastError String?  @map("last_error")
+
+  @@map("jobs_outbox")
+}
+
+model Withdrawal {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizerId        String    @map("organizer_id") @db.Uuid
+  amountCents        Int       @map("amount_cents")
+  status             String    @default("requested") /// requested | processing | done | failed
+  providerTransferId String?   @map("provider_transfer_id")
+  requestedAt        DateTime  @default(now()) @map("requested_at") @db.Timestamptz
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz
+
+  organizer OrganizerAccount @relation(fields: [organizerId], references: [id])
+
+  @@map("withdrawals")
+}
+
+model EventStaff {
+  eventId String @map("event_id") @db.Uuid
+  userId  String @map("user_id") @db.Uuid
+  role    String @default("checkin")
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@id([eventId, userId])
+  @@map("event_staff")
+}
+
+model ModerationAction {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId    String   @map("admin_id") @db.Uuid
+  targetType String   @map("target_type") /// 'event' | 'user' | 'order'
+  targetId   String   @map("target_id") @db.Uuid
+  action     String /// 'block' | 'unblock' | 'refund' | 'flag'
+  reason     String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  admin User @relation(fields: [adminId], references: [id])
+
+  @@map("moderation_actions")
+}

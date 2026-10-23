@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # valores fictícios só para o build; nada aqui acessa serviços reais
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
+      NEXT_PUBLIC_SUPABASE_URL: https://ci.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # troque por "npm ci" (e adicione cache: npm acima) depois de versionar o package-lock.json
+      - run: npm install
+      - run: npx prisma validate
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run typecheck
