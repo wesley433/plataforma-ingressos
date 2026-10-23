@@ -10,7 +10,7 @@ Taxa da plataforma: **5% sobre o preço de face** de ingressos pagos, repassada 
 | Sprint | Escopo | Situação |
 | --- | --- | --- |
 | 0 | Base do projeto, schema do banco, cálculo de taxas, QR assinado, CI | ✅ |
-| 1 | Autenticação, perfis, onboarding do organizador (subconta Asaas) | — |
+| 1 | Autenticação, perfis, onboarding do organizador (subconta Asaas) | ✅ |
 | 2 | Eventos e lotes | — |
 | 3 | Checkout gratuito e pipeline de ingresso (QR, PDF, e-mail) | — |
 | 4 | Checkout pago, split e webhooks | — |
@@ -28,16 +28,14 @@ npm test                     # regras de taxa e QR
 npm run dev                  # http://localhost:3000
 ```
 
-## Banco de dados (primeira vez)
+## Banco de dados
 
-1. Crie um projeto no Supabase e copie `DATABASE_URL` e `DIRECT_URL` para o `.env.local`.
-2. Gere a migration inicial **sem aplicar**:
-   ```bash
-   npm run db:migrate -- --create-only --name init
-   ```
-3. Abra `prisma/migrations/<data>_init/migration.sql` e cole **no final** o conteúdo de `prisma/constraints.sql`
-   (CHECKs de valores, trava contra overselling, índice que impede check-in duplo, vínculo com `auth.users`).
-4. Aplique: `npm run db:migrate`.
+As migrations ficam em `prisma/migrations` e são aplicadas **automaticamente em cada deploy da Vercel**
+(`vercel-build` roda `prisma migrate deploy` antes do build). A migration inicial inclui as regras que o
+Prisma não expressa: CHECKs de valores, trava contra overselling, índice que impede check-in duplo,
+gatilho que cria o usuário em `users` quando alguém se cadastra no Supabase Auth e RLS em todas as tabelas.
+
+Para criar uma nova migration localmente: `npm run db:migrate -- --name descricao`.
 
 ## Onde está cada regra
 
@@ -46,7 +44,7 @@ npm run dev                  # http://localhost:3000
 | Taxa de 5% (repassada × absorvida), arredondamento, split do Asaas | `src/lib/fees.ts` |
 | Token do QR Code (HMAC, sem dados pessoais) e código curto | `src/lib/ticket-token.ts` |
 | Tabelas e relacionamentos | `prisma/schema.prisma` |
-| Regras que só o banco garante | `prisma/constraints.sql` |
+| Regras que só o banco garante | `prisma/migrations/*_init/migration.sql` (fim do arquivo) |
 
 ## Segurança
 

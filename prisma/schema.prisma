@@ -129,6 +129,10 @@ model OrganizerAccount {
   gatewayApiKeyEnc  Bytes?   @map("gateway_api_key_enc") /// chave da subconta, cifrada
   webhookTokenHash  String?  @map("webhook_token_hash")
   kycStatus         String   @default("pending") @map("kyc_status")
+  phone             String?  @db.VarChar(11)
+  /// dados enviados (ou a enviar) ao gateway para criar a subconta; permite reenviar
+  gatewayOnboarding Json?    @map("gateway_onboarding")
+  gatewayLastError  String?  @map("gateway_last_error")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user        User         @relation(fields: [userId], references: [id])

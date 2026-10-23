@@ -8,8 +8,18 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_USER: ci
+          POSTGRES_DB: ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      # valores fictícios só para o build; nada aqui acessa serviços reais
+      # banco descartável do CI; nada aqui acessa serviços reais
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
       DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
       NEXT_PUBLIC_SUPABASE_URL: https://ci.supabase.co
@@ -22,6 +32,12 @@ jobs:
       # troque por "npm ci" (e adicione cache: npm acima) depois de versionar o package-lock.json
       - run: npm install
       - run: npx prisma validate
+      - name: Migrations aplicam num Postgres limpo (com auth.users simulado)
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "create schema auth; create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb);"
+          npx prisma migrate deploy
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "insert into auth.users values (gen_random_uuid(), 'teste@ci.com', '{\"name\":\"Teste CI\"}');"
+          test "$(psql "$DATABASE_URL" -tAc "select name from users where email='teste@ci.com'")" = "Teste CI"
       - run: npm test
       - run: npm run lint
       - run: npm run build
